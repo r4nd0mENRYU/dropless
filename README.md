@@ -2,10 +2,10 @@
 
 # Dropless
 
-**Webhooks that never drop. Self-hostable, Postgres-only, Apache-2.0.**
+**Webhooks that never drop. Self-hostable, Postgres-only, AGPL-3.0.**
 
 [![CI](https://github.com/r4nd0mENRYU/dropless/actions/workflows/ci.yml/badge.svg)](https://github.com/r4nd0mENRYU/dropless/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 ![Rust](https://img.shields.io/badge/rust-stable-orange.svg)
 ![Dependencies](https://img.shields.io/badge/runtime%20deps-Postgres%20only-8A2BE2.svg)
 
@@ -52,6 +52,14 @@ either commits everything or nothing — there is no acknowledged-but-lost event
 git clone https://github.com/r4nd0mENRYU/dropless && cd dropless
 docker compose up --build          # Postgres + migrate + API/workers
 # API + dashboard on http://localhost:8080
+```
+
+Prefer a prebuilt image? Each release publishes one to GHCR — no build needed:
+
+```sh
+docker pull ghcr.io/r4nd0menryu/dropless:latest
+# point it at your own Postgres:
+docker run -e DATABASE_URL=postgres://… -p 8080:8080 ghcr.io/r4nd0menryu/dropless serve
 ```
 
 Create a key + an endpoint and send your first event:
@@ -135,4 +143,4 @@ reports: [SECURITY.md](./SECURITY.md).
 
 ## License
 
-[Apache-2.0](./LICENSE) — forever, no rug pulls.
+[AGPL-3.0](./LICENSE). Open source; if you run a modified version as a network service, you must share your changes. The core stays open — no rug pulls.
