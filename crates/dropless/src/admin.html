@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dropless · operator</title>
+<style>
+  :root{
+    --ink:#0a0b0e; --ink-2:#0f1116; --ink-3:#14171e; --ink-4:#191d26;
+    --line:#20242e; --line-2:#2b313d; --text:#e7e9ee; --dim:#8b90a0; --faint:#565c6b;
+    --lime:#c6f24e; --lime-dim:#9bc23a; --green:#8fe04a; --amber:#f1b552; --red:#f2655a; --blue:#8493b0;
+    --mono:ui-monospace,"JetBrains Mono","SFMono-Regular","SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ink);color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.5;
+    background-image:radial-gradient(circle at 1px 1px,rgba(255,255,255,.02) 1px,transparent 0),radial-gradient(1100px 500px at 100% -10%,rgba(241,181,82,.05),transparent 60%);
+    background-size:22px 22px,100% 100%;min-height:100vh}
+  button,input{font-family:inherit;font-size:inherit;color:inherit}
+  ::selection{background:rgba(241,181,82,.28)}
+  .wrap{max-width:1100px;margin:0 auto;padding:22px 20px 60px}
+  .top{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+  .brand{font-weight:700;letter-spacing:.34em;display:flex;align-items:center;gap:9px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .tag{font-size:9.5px;letter-spacing:.22em;color:var(--amber);text-transform:uppercase;border:1px solid rgba(241,181,82,.3);padding:2px 8px;border-radius:6px}
+  .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+  .ghost{background:transparent;border:1px solid var(--line-2);border-radius:7px;padding:6px 11px;color:var(--dim);cursor:pointer}
+  .ghost:hover{border-color:var(--amber);color:var(--text)}
+  .seg{display:flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+  .seg button{background:transparent;border:0;padding:6px 11px;color:var(--dim);cursor:pointer;font-size:11px}
+  .seg button.on{background:var(--ink-4);color:var(--amber)}
+  h2{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--faint);margin:26px 0 10px;display:flex;gap:10px;align-items:center}
+  h2::after{content:"";flex:1;height:1px;background:var(--line)}
+  table{width:100%;border-collapse:collapse;background:var(--ink-2);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);font-size:12px}
+  th{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);background:var(--ink-3)}
+  tr:last-child td{border-bottom:0}
+  tr:hover td{background:var(--ink-3)}
+  td.num{text-align:right}
+  .t{color:var(--text);font-weight:600} .g{color:var(--green)} .a{color:var(--amber)} .r{color:var(--red)} .d{color:var(--faint)}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;border:1px solid}
+  .pill.failed{color:var(--amber);border-color:rgba(241,181,82,.4)} .pill.dead{color:var(--red);border-color:rgba(242,101,90,.4)}
+  .err{color:var(--dim);font-size:10.5px;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .empty{padding:40px;text-align:center;color:var(--faint);background:var(--ink-2);border:1px solid var(--line);border-radius:12px}
+  .gate{max-width:440px;margin:14vh auto;background:var(--ink-2);border:1px solid var(--line);border-radius:16px;padding:30px;text-align:center}
+  .gate h1{font-size:14px;letter-spacing:.34em;display:flex;justify-content:center;gap:9px;align-items:center}
+  .gate p{font-size:10.5px;color:var(--faint);line-height:1.7}
+  input[type=text]{background:var(--ink);border:1px solid var(--line-2);border-radius:8px;padding:10px 12px;color:var(--text);width:100%;outline:none}
+  input:focus{border-color:var(--amber)}
+  .btn{background:var(--amber);color:var(--ink);border:0;border-radius:8px;padding:10px;width:100%;font-weight:700;cursor:pointer;margin-top:14px}
+  #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:var(--ink-4);border:1px solid var(--line-2);border-radius:10px;padding:10px 16px;font-size:12px;transition:.2s;z-index:9}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)} #toast.err{border-color:rgba(242,101,90,.5);color:var(--red)}
+</style>
+</head>
+<body>
+<div id="gate" class="gate">
+  <h1><span class="dot"></span>DROPLESS</h1>
+  <div class="tag" style="display:inline-block;margin:12px 0 18px">operator console</div>
+  <input id="tok" type="text" placeholder="paste ADMIN_TOKEN" autocomplete="off" spellcheck="false" />
+  <button class="btn" id="go">Enter</button>
+  <p style="margin-top:14px">Cross-tenant operator view. Requires the server's <code>ADMIN_TOKEN</code>
+    (not a tenant API key). Stored only in this browser.</p>
+</div>
+
+<div id="app" class="wrap" style="display:none">
+  <div class="top">
+    <div class="brand"><span class="dot"></span>DROPLESS</div>
+    <span class="tag">operator console</span>
+    <div class="right">
+      <div class="seg" id="auto"><button data-ms="0" class="on">manual</button><button data-ms="5000">auto 5s</button></div>
+      <button class="ghost" id="refresh">↻ refresh</button>
+      <button class="ghost" id="exit">exit</button>
+    </div>
+  </div>
+  <h2>tenants</h2>
+  <div id="tenants"></div>
+  <h2>recent failures · all tenants</h2>
+  <div id="failures"></div>
+</div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $=(s)=>document.querySelector(s);
+const el=(t,a={},...k)=>{const e=document.createElement(t);for(const[x,v]of Object.entries(a)){if(x==="class")e.className=v;else if(x.startsWith("on")&&typeof v==="function")e.addEventListener(x.slice(2),v);else e.setAttribute(x,v);}for(const c of k.flat())if(c!=null&&c!==false)e.append(c.nodeType?c:document.createTextNode(c));return e;};
+const KEY="dropless_admin_token";
+let TOK=localStorage.getItem(KEY)||"", timer=null;
+
+function toast(m,k=""){const t=$("#toast");t.className=k;t.textContent=m;t.classList.add("show");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("show"),3000);}
+function ago(iso){if(!iso)return"—";const d=(Date.now()-new Date(iso))/1000;if(d<60)return(d|0)+"s";if(d<3600)return(d/60|0)+"m";if(d<86400)return(d/3600|0)+"h";return(d/86400|0)+"d";}
+function sid(x){return String(x||"").slice(0,8);}
+
+async function api(path){
+  const r=await fetch(path,{headers:{authorization:"Bearer "+TOK}});
+  if(r.status===401){disconnect();throw new Error("unauthorized — wrong ADMIN_TOKEN");}
+  if(r.status===404)throw new Error("admin disabled (set ADMIN_TOKEN on the server)");
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  return r.json();
+}
+function connect(t){TOK=(t||"").trim();if(!TOK)return;localStorage.setItem(KEY,TOK);$("#gate").style.display="none";$("#app").style.display="block";load();}
+function disconnect(){TOK="";localStorage.removeItem(KEY);stop();$("#app").style.display="none";$("#gate").style.display="block";$("#tok").value="";}
+function stop(){if(timer){clearInterval(timer);timer=null;}}
+
+async function load(){
+  try{
+    const [tenants,fails]=await Promise.all([api("/admin/overview"),api("/admin/failures")]);
+    renderTenants(tenants); renderFailures(fails);
+  }catch(e){toast(e.message,"err");}
+}
+
+function renderTenants(rows){
+  const host=$("#tenants");
+  if(!rows.length){host.replaceChildren(el("div",{class:"empty"},"no tenants yet"));return;}
+  const head=el("tr",{},...["tenant","endpoints","events","succeeded","failed","dead"].map((h,i)=>el("th",{class:i?"num":""},h)));
+  const body=rows.map(r=>el("tr",{},
+    el("td",{class:"t"},r.tenant_id),
+    el("td",{class:"num d"},""+r.endpoints),
+    el("td",{class:"num"},""+r.events),
+    el("td",{class:"num g"},""+r.succeeded),
+    el("td",{class:"num "+(r.failed>0?"a":"d")},""+r.failed),
+    el("td",{class:"num "+(r.dead>0?"r":"d")},""+r.dead),
+  ));
+  host.replaceChildren(el("table",{},el("thead",{},head),el("tbody",{},...body)));
+}
+
+function renderFailures(rows){
+  const host=$("#failures");
+  if(!rows.length){host.replaceChildren(el("div",{class:"empty"},"no failed or dead deliveries — all healthy ✓"));return;}
+  const head=el("tr",{},...["when","tenant","event","endpoint","status","attempts","last error"].map(h=>el("th",{},h)));
+  const body=rows.map(r=>el("tr",{},
+    el("td",{class:"d"},ago(r.updated_at)+" ago"),
+    el("td",{class:"t"},r.tenant_id),
+    el("td",{},r.event_type),
+    el("td",{class:"d",title:r.endpoint_url},r.endpoint_url.replace(/^https?:\/\//,"").slice(0,40)),
+    el("td",{},el("span",{class:"pill "+r.status},r.status)),
+    el("td",{class:"num"},""+r.attempt_count),
+    el("td",{class:"err",title:r.last_error||""},r.last_error||"—"),
+  ));
+  host.replaceChildren(el("table",{},el("thead",{},head),el("tbody",{},...body)));
+}
+
+$("#go").addEventListener("click",()=>connect($("#tok").value));
+$("#tok").addEventListener("keydown",e=>{if(e.key==="Enter")connect($("#tok").value);});
+$("#refresh").addEventListener("click",load);
+$("#exit").addEventListener("click",disconnect);
+$("#auto").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;[...e.currentTarget.children].forEach(c=>c.classList.toggle("on",c===b));stop();const ms=+b.dataset.ms;if(ms)timer=setInterval(load,ms);});
+
+if(TOK)connect(TOK); else $("#tok").focus();
+</script>
+</body>
+</html>

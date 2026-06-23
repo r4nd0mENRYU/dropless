@@ -1,0 +1,369 @@
+openapi: 3.1.0
+info:
+  title: Dropless API
+  version: "0.1.0"
+  description: |
+    Self-hosted, zero-loss webhook delivery. A message is only acknowledged with
+    `201` after its event and fan-out deliveries are committed to Postgres in a
+    single transaction. Delivery is at-least-once (effectively-once) with an
+    immutable `Idempotency-Key` per delivery.
+
+    All `/v1/*` routes require `Authorization: Bearer <api-key>`. Outbound
+    webhooks are signed Svix-style (`webhook-id`, `webhook-timestamp`,
+    `webhook-signature: v1,<base64(HMAC_SHA256(secret, "{id}.{ts}.{body}"))>`).
+  license:
+    name: Apache-2.0
+servers:
+  - url: http://localhost:8080
+    description: Local
+security:
+  - bearerAuth: []
+tags:
+  - name: Messages
+  - name: Deliveries
+  - name: Endpoints
+  - name: Inbound
+  - name: Ops
+paths:
+  /v1/messages:
+    post:
+      tags: [Messages]
+      summary: Emit a message (fan out to the tenant's active endpoints)
+      operationId: createMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateMessage" }
+      responses:
+        "201":
+          description: Committed (the core invariant) and queued for delivery.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateMessageResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+    get:
+      tags: [Messages]
+      summary: List recent events for the tenant (newest first)
+      operationId: listMessages
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0, minimum: 0 } }
+      responses:
+        "200":
+          description: Events.
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Event" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/messages/{id}:
+    get:
+      tags: [Messages]
+      summary: An event and its deliveries
+      operationId: getMessage
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200":
+          description: Event + deliveries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/deliveries/{id}:
+    get:
+      tags: [Deliveries]
+      summary: A delivery and its full attempt timeline
+      operationId: getDelivery
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200":
+          description: Delivery + attempts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeliveryDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/deliveries/{id}/replay:
+    post:
+      tags: [Deliveries]
+      summary: Re-queue a delivery immediately
+      operationId: replayDelivery
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "202": { description: Accepted; the delivery is re-queued. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /v1/endpoints:
+    post:
+      tags: [Endpoints]
+      summary: Register a subscriber endpoint
+      operationId: createEndpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateEndpoint" }
+      responses:
+        "201":
+          description: Created. The signing `secret` is returned ONCE.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedEndpoint" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      tags: [Endpoints]
+      summary: List the tenant's endpoints
+      operationId: listEndpoints
+      responses:
+        "200":
+          description: Endpoints (secrets never included).
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Endpoint" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/endpoints/{id}:
+    get:
+      tags: [Endpoints]
+      summary: One endpoint
+      operationId: getEndpoint
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200":
+          description: Endpoint.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Endpoint" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Endpoints]
+      summary: Update an endpoint's URL and/or disabled flag
+      operationId: updateEndpoint
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateEndpoint" }
+      responses:
+        "200":
+          description: Updated endpoint.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Endpoint" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /healthz:
+    get:
+      tags: [Ops]
+      summary: Liveness (no dependencies)
+      security: []
+      responses: { "200": { description: Process is up. } }
+  /readyz:
+    get:
+      tags: [Ops]
+      summary: Readiness (database reachable)
+      security: []
+      responses:
+        "200": { description: Ready. }
+        "503": { description: Database unavailable. }
+  /metrics:
+    get:
+      tags: [Ops]
+      summary: Prometheus metrics (cross-tenant; gate with METRICS_TOKEN)
+      responses:
+        "200":
+          description: Prometheus text exposition.
+          content: { text/plain: { schema: { type: string } } }
+        "401": { description: METRICS_TOKEN required. }
+  /ingest/{slug}:
+    post:
+      tags: [Inbound]
+      summary: Receive a provider webhook (raw-first, deduped, bridged to outbound)
+      operationId: ingest
+      description: |
+        Authenticated by the provider's signature (Stripe / GitHub / HMAC), not
+        an API key. The raw body is persisted before anything else, deduped on
+        the provider's event id, and bridged into an outbound event.
+      security: []
+      parameters:
+        - { name: slug, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object, additionalProperties: true } }
+      responses:
+        "202": { description: Accepted, persisted, and bridged. }
+        "200": { description: Duplicate (already received) — a no-op. }
+        "401": { description: Signature verification failed. }
+        "404": { description: Unknown or disabled source. }
+  /v1/inbound-sources:
+    post:
+      tags: [Inbound]
+      summary: Register an inbound source
+      operationId: createInboundSource
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: "#/components/schemas/CreateInboundSource" } }
+      responses:
+        "201":
+          description: Created. The `secret` is returned ONCE.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/CreatedInboundSource" } }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      tags: [Inbound]
+      summary: List the tenant's inbound sources
+      operationId: listInboundSources
+      responses:
+        "200":
+          description: Inbound sources (secrets never included).
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/InboundSource" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, description: An API key from `dropless create-api-key`. }
+  parameters:
+    Id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Not found (or not owned by the tenant).
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    BadRequest:
+      description: Invalid request body.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      properties: { error: { type: string } }
+      required: [error]
+    DeliveryStatus:
+      type: string
+      enum: [pending, in_progress, succeeded, failed, dead]
+    CreateMessage:
+      type: object
+      required: [event_type, payload]
+      properties:
+        event_type: { type: string, example: invoice.paid }
+        payload: { type: object, additionalProperties: true }
+    CreateMessageResponse:
+      type: object
+      required: [id, delivery_ids]
+      properties:
+        id: { type: string, format: uuid }
+        delivery_ids: { type: array, items: { type: string, format: uuid } }
+    Event:
+      type: object
+      required: [id, tenant_id, event_type, payload, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string }
+        event_type: { type: string }
+        payload: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+    Delivery:
+      type: object
+      required: [id, event_id, endpoint_id, tenant_id, status, attempt_count, next_attempt_at, idempotency_key, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        endpoint_id: { type: string, format: uuid }
+        tenant_id: { type: string }
+        status: { $ref: "#/components/schemas/DeliveryStatus" }
+        attempt_count: { type: integer }
+        next_attempt_at: { type: string, format: date-time }
+        locked_until: { type: [string, "null"], format: date-time }
+        locked_by: { type: [string, "null"] }
+        idempotency_key: { type: string }
+        last_error: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DeliveryAttempt:
+      type: object
+      required: [id, delivery_id, attempt_number, started_at, finished_at]
+      properties:
+        id: { type: string, format: uuid }
+        delivery_id: { type: string, format: uuid }
+        attempt_number: { type: integer }
+        status_code: { type: [integer, "null"] }
+        response_snippet: { type: [string, "null"] }
+        error: { type: [string, "null"] }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+    Endpoint:
+      type: object
+      required: [id, tenant_id, url, disabled, circuit_state, consecutive_failures, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string }
+        url: { type: string, format: uri }
+        disabled: { type: boolean }
+        circuit_state: { type: string, enum: [closed, open, half_open] }
+        circuit_open_until: { type: [string, "null"], format: date-time }
+        consecutive_failures: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateEndpoint:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        secret: { type: string, description: "Optional; a whsec_… secret is generated if omitted." }
+    CreatedEndpoint:
+      allOf:
+        - { $ref: "#/components/schemas/Endpoint" }
+        - type: object
+          required: [secret]
+          properties:
+            secret: { type: string, description: "Signing secret — returned ONLY here." }
+    UpdateEndpoint:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        disabled: { type: boolean }
+    MessageDetail:
+      type: object
+      required: [event, deliveries]
+      properties:
+        event: { $ref: "#/components/schemas/Event" }
+        deliveries: { type: array, items: { $ref: "#/components/schemas/Delivery" } }
+    DeliveryDetail:
+      type: object
+      required: [delivery, attempts]
+      properties:
+        delivery: { $ref: "#/components/schemas/Delivery" }
+        attempts: { type: array, items: { $ref: "#/components/schemas/DeliveryAttempt" } }
+    InboundSource:
+      type: object
+      required: [id, tenant_id, slug, provider, disabled, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        tenant_id: { type: string }
+        slug: { type: string }
+        provider: { type: string, enum: [stripe, github, hmac] }
+        disabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    CreateInboundSource:
+      type: object
+      required: [slug, provider]
+      properties:
+        slug: { type: string, description: "Globally-unique URL segment for POST /ingest/{slug}." }
+        provider: { type: string, enum: [stripe, github, hmac] }
+        secret: { type: string, description: "Provider signing secret; generated for hmac if omitted." }
+    CreatedInboundSource:
+      allOf:
+        - { $ref: "#/components/schemas/InboundSource" }
+        - type: object
+          required: [secret]
+          properties:
+            secret: { type: string, description: "Verification secret — returned ONLY here." }

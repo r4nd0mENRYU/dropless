@@ -1,0 +1,29 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock IS committed (Dropless is a binary/service, not a library)
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# sqlx offline cache (not used — runtime-checked queries)
+.sqlx/
+
+# logs / local data
+*.log
+/data
+/tmp
+
+# editor / OS
+/.idea
+/.vscode/*
+!/.vscode/extensions.json
+.DS_Store
+*.swp
+
+# Playwright MCP verification artifacts
+.playwright-mcp/

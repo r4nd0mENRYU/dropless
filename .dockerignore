@@ -1,0 +1,13 @@
+# Keep the build context small and the image build reproducible.
+target
+**/target
+**/node_modules
+**/dist
+.git
+.github
+.playwright-mcp
+bench/REPORT.md
+*.log
+.env
+.env.*
+!.env.example

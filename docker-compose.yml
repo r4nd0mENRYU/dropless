@@ -1,0 +1,49 @@
+# Dropless in one command:  docker compose up
+#
+# Brings up Postgres, runs migrations once, then starts the API + workers.
+# Postgres is the only dependency — no Redis, no message broker.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: dropless
+      POSTGRES_PASSWORD: dropless
+      POSTGRES_DB: dropless
+    volumes:
+      - dropless_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dropless -d dropless"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "5432:5432"
+
+  migrate:
+    build: .
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgres://dropless:dropless@db:5432/dropless
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    command: ["serve", "--role=all"]
+    environment:
+      DATABASE_URL: postgres://dropless:dropless@db:5432/dropless
+      BIND_ADDR: 0.0.0.0:8080
+      RUST_LOG: info,sqlx=warn
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+
+volumes:
+  dropless_pgdata:

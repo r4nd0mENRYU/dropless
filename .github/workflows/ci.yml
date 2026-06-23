@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The critical gate: everything must build, lint, and unit-test WITHOUT a
+  # database. DATABASE_URL is intentionally unset here. If anyone reintroduces
+  # a compile-time sqlx macro (query!/query_as!), this job fails.
+  build-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Build
+        run: cargo build --workspace
+      - name: Unit tests (no database)
+        run: cargo test --workspace
+
+  # The reliability gate: the no-loss crash proof and the real kill -9 proof,
+  # against a live Postgres. These are the product's central claim.
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dropless
+          POSTGRES_PASSWORD: dropless
+          POSTGRES_DB: dropless
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dropless"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://dropless:dropless@127.0.0.1:5432/dropless
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: No-loss integration proof
+        run: cargo test --workspace -- --ignored --nocapture
+      - name: kill -9 proof
+        run: bash scripts/kill9_test.sh 200
