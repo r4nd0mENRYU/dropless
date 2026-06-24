@@ -14,6 +14,10 @@ to your subscribers — durably, with retries, HMAC signatures, replay, and a
 built-in dashboard — from a single `docker compose up`. No Redis, no Kafka, no
 queue to operate. Just Postgres.
 
+<br>
+
+<img src="docs/dashboard.png" alt="Dropless dashboard — event stream with per-delivery status (succeeded/dead), payload, attempt timeline, and one-click replay" width="900">
+
 </div>
 
 ---
